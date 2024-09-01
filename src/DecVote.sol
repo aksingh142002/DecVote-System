@@ -25,7 +25,7 @@ contract DecVotingSystem {
     // =======================================
     //           CONSTANTS & IMMUTABLES
     // =======================================
-    address private immutable i_owner;
+    address public immutable i_owner;
     uint256 public immutable i_registration_fee;
     uint256 private constant TOLERANCE = 2 wei;
     uint256 private immutable i_nomination_endTime;
