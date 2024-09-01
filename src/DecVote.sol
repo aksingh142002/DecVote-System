@@ -11,31 +11,37 @@ contract DecVotingSystem {
     // =======================================
     //           CUSTOM ERRORS
     // =======================================
-    error AlreadyRegisteredError();
+    error NotOwner();
+    error WithdrawError();
+    error InputError();
+    error TimeError();
     error NotRegisteredError();
-    error InsufficientFeeError();
+    error NotFinalizedError();
+    error AlreadyRegisteredError();
     error AlreadyNominatedError();
     error AlreadyVotedError();
+    error IndexOutOfBoundsError();
 
     // =======================================
     //           CONSTANTS & IMMUTABLES
     // =======================================
+    address private immutable i_owner;
     uint256 public immutable i_registration_fee;
-    uint256 public constant TOLERANCE = 2 wei;
-    uint256 public immutable i_nomination_endTime;
-    uint256 public immutable i_election_endTime;
+    uint256 private constant TOLERANCE = 2 wei;
+    uint256 private immutable i_nomination_endTime;
+    uint256 private immutable i_election_endTime;
 
     // =======================================
     //           STATE VARIABLES
     // =======================================
     uint256 public s_nominationThreshold;
     address public s_winner;
-    address[] public s_voterList;
-    address[] public s_candidateList;
-    address[] public finalList;
+    address[] private s_voterList;
+    address[] private s_candidateList;
+    address[] private finalList;
 
-    mapping(address => Voter) public s_voterData;
-    mapping(address => Candidate) public s_candidateData;
+    mapping(address => Voter) private s_voterData;
+    mapping(address => Candidate) private s_candidateData;
 
     // =======================================
     //           STRUCTS
@@ -61,6 +67,7 @@ contract DecVotingSystem {
     event VoterVoted(address indexed voter, address indexed candidate);
     event CandidateRegistered(string name, address indexed candidate);
     event CandidateFinalized(address[] finalizedCandidates);
+    event Withdrawn(address indexed to, uint256 amount);
 
     // =======================================
     //           CONSTRUCTOR & MODIFIERS
@@ -74,16 +81,27 @@ contract DecVotingSystem {
      */
     constructor(uint256 _registrationFee, uint256 _nominationEndTime, uint256 _electionEndTime) {
         if (_registrationFee == 0 || _nominationEndTime == 0 || _electionEndTime <= _nominationEndTime) {
-            revert InsufficientFeeError();
+            revert InputError();
         }
+        i_owner = msg.sender;
         i_registration_fee = _registrationFee;
         i_nomination_endTime = block.timestamp + (_nominationEndTime * 1 hours);
         i_election_endTime = block.timestamp + (_electionEndTime * 1 hours);
     }
+    /**
+     * @dev Modifier to restrict access to the owner
+     */
 
+    modifier onlyOwner() {
+        if (msg.sender != i_owner) {
+            revert NotOwner();
+        }
+        _;
+    }
     /**
      * @dev Ensures that only registered voters can call certain functions.
      */
+
     modifier onlyVoter() {
         if (s_voterData[msg.sender].voterAddress != msg.sender) {
             revert NotRegisteredError();
@@ -105,7 +123,10 @@ contract DecVotingSystem {
         s_voterData[msg.sender] = Voter({voterAddress: msg.sender, hasVoted: false, hasNominated: false});
         s_voterList.push(msg.sender);
 
-        updateNominationThreshold();
+        // Update nomination threshold if the nomination period is still active
+        if (block.timestamp < i_nomination_endTime) {
+            updateNominationThreshold();
+        }
         emit VoterRegistered(msg.sender);
     }
 
@@ -120,11 +141,11 @@ contract DecVotingSystem {
      * @dev Registers a new candidate. The candidate must be a registered voter.
      * @param name The name of the candidate.
      */
-    function registerAsCandiate(string memory name) public payable onlyVoter {
+    function registerAsCandidate(string memory name) public payable onlyVoter {
         if (s_candidateData[msg.sender].candidateAddress == msg.sender) {
             revert AlreadyRegisteredError();
         } else if (msg.value < i_registration_fee - TOLERANCE || msg.value > i_registration_fee + TOLERANCE) {
-            revert InsufficientFeeError();
+            revert InputError();
         }
         s_candidateData[msg.sender] = Candidate({
             candidateName: name,
@@ -143,7 +164,9 @@ contract DecVotingSystem {
      * @param candidate The address of the candidate being nominated.
      */
     function nominateCandidate(address candidate) public onlyVoter {
-        if (s_voterData[msg.sender].hasNominated) {
+        if (block.timestamp > i_nomination_endTime) {
+            revert TimeError();
+        } else if (s_voterData[msg.sender].hasNominated) {
             revert AlreadyNominatedError();
         } else if (s_candidateData[candidate].candidateAddress != candidate) {
             revert NotRegisteredError();
@@ -154,12 +177,11 @@ contract DecVotingSystem {
 
     /**
      * @dev Finalizes the candidate list by filtering out candidates who do not meet the nomination threshold.
-     * @return The list of candidates who are officially nominated.
      */
-    function finalizeCandidateList() public onlyVoter returns (address[] memory) {
-        if (finalList.length == 0) {
-            require(block.timestamp > i_nomination_endTime, "Nomination time has not ended.");
-
+    function finalizeCandidateList() public onlyVoter {
+        if (block.timestamp <= i_nomination_endTime) {
+            revert TimeError();
+        } else if (finalList.length == 0) {
             uint256 listLength = s_candidateList.length;
             uint256 nominationThreshold = s_nominationThreshold;
 
@@ -185,7 +207,6 @@ contract DecVotingSystem {
 
             emit CandidateFinalized(finalList);
         }
-        return finalList;
     }
 
     /**
@@ -193,10 +214,14 @@ contract DecVotingSystem {
      * @param candidate The address of the candidate being voted for.
      */
     function voteForCandidate(address candidate) public onlyVoter {
-        require(block.timestamp < i_election_endTime, "Election time ended");
-        if (s_voterData[msg.sender].hasVoted) {
+        if (block.timestamp < i_nomination_endTime || block.timestamp > i_election_endTime) {
+            revert TimeError();
+        } else if (s_voterData[msg.sender].hasVoted) {
             revert AlreadyVotedError();
+        } else if (!s_candidateData[candidate].isOfficialCandidate) {
+            revert NotFinalizedError();
         }
+
         s_voterData[msg.sender].hasVoted = true;
         s_candidateData[candidate].voteCount++;
 
@@ -205,12 +230,11 @@ contract DecVotingSystem {
 
     /**
      * @dev Retrieves the election result by determining the candidate with the highest vote count.
-     * @return The address of the winning candidate.
      */
-    function getElectionResult() public returns (address) {
-        require(block.timestamp > i_election_endTime, "Election time not ended");
-
-        if (s_winner == address(0)) {
+    function publishElectionResult() public {
+        if (block.timestamp <= i_election_endTime) {
+            revert TimeError();
+        } else if (s_winner == address(0)) {
             address temp;
             uint256 highestVoteCount = 0;
             uint256 listLength = finalList.length;
@@ -226,7 +250,18 @@ contract DecVotingSystem {
             }
             s_winner = temp;
         }
-        return s_winner;
+    }
+
+    function wthdraw() public onlyOwner {
+        uint256 balance = address(this).balance; // Store the balance before modifying state
+
+        // Transfer the contract's balance to the owner
+        (bool callSuccess,) = payable(msg.sender).call{value: balance}("");
+        if (!callSuccess) {
+            revert WithdrawError();
+        }
+
+        emit Withdrawn(msg.sender, balance); // Emit a withdrawn event
     }
 
     // =======================================
@@ -239,6 +274,9 @@ contract DecVotingSystem {
      * @return The address of the voter.
      */
     function getVotersAddress(uint256 index) public view returns (address) {
+        if (index >= s_voterList.length) {
+            revert IndexOutOfBoundsError();
+        }
         return s_voterList[index];
     }
 
@@ -257,6 +295,9 @@ contract DecVotingSystem {
      * @return The address of the candidate.
      */
     function getCandidateAddress(uint256 index) public view returns (address) {
+        if (index >= s_candidateList.length) {
+            revert IndexOutOfBoundsError();
+        }
         return s_candidateList[index];
     }
 
@@ -267,5 +308,17 @@ contract DecVotingSystem {
      */
     function getCandidateData(address _cAddress) public view returns (Candidate memory) {
         return s_candidateData[_cAddress];
+    }
+
+    /**
+     * @dev Returns the address of a finalized candidate by index.
+     * @param index The index of the finalized candidate in the list.
+     * @return The address of the finalized candidate.
+     */
+    function getFinalList(uint256 index) public view returns (address) {
+        if (index >= finalList.length) {
+            revert IndexOutOfBoundsError();
+        }
+        return finalList[index];
     }
 }
