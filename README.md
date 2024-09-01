@@ -6,8 +6,8 @@ The **Decentralized Voting System** is a smart contract-based application design
 
 ## Features
 
-- **Voter Registration:** Users can register as voters by paying a registration fee.
-- **Candidate Nomination:** Registered voters can nominate themselves or others as candidates.
+- **Voter Registration:** Users can register as voters.
+- **Candidate Nomination:** Registered voters can register themselves as candidates by paying a registration fee.
 - **Voting Mechanism:** Voters can vote for their preferred candidates during the election period.
 - **Result Finalization:** The system automatically finalizes the list of eligible candidates and determines the election winner.
 
@@ -32,8 +32,8 @@ This is the primary contract that manages the entire voting process. It contains
 
 #### Functions:
 
-- **`registerAsVoter`:** Allows users to register as voters by paying the registration fee.
-- **`registerAsCandidate`:** Enables registered voters to nominate themselves as candidates.
+- **`registerAsVoter`:** Allows users to register as voters.
+- **`registerAsCandidate`:** Enables registered voters to register themselves as candidates by paying a registration fee.
 - **`nominateCandidate`:** Allows voters to nominate other candidates.
 - **`finalizeCandidateList`:** Finalizes the list of eligible candidates after the nomination period.
 - **`voteForCandidate`:** Allows voters to cast their votes for candidates.
