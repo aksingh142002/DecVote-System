@@ -28,8 +28,8 @@ contract DecVotingSystem {
     address public immutable i_owner;
     uint256 public immutable i_registration_fee;
     uint256 private constant TOLERANCE = 2 wei;
-    uint256 private immutable i_nomination_endTime;
-    uint256 private immutable i_election_endTime;
+    uint256 public immutable i_nomination_endTime;
+    uint256 public immutable i_election_endTime;
 
     // =======================================
     //           STATE VARIABLES
@@ -178,7 +178,7 @@ contract DecVotingSystem {
     /**
      * @dev Finalizes the candidate list by filtering out candidates who do not meet the nomination threshold.
      */
-    function finalizeCandidateList() public onlyVoter {
+    function finalizeCandidateList() public onlyOwner {
         if (block.timestamp <= i_nomination_endTime) {
             revert TimeError();
         } else if (finalList.length == 0) {
@@ -231,7 +231,7 @@ contract DecVotingSystem {
     /**
      * @dev Retrieves the election result by determining the candidate with the highest vote count.
      */
-    function publishElectionResult() public {
+    function publishElectionResult() public onlyOwner {
         if (block.timestamp <= i_election_endTime) {
             revert TimeError();
         } else if (s_winner == address(0)) {
@@ -252,7 +252,7 @@ contract DecVotingSystem {
         }
     }
 
-    function wthdraw() public onlyOwner {
+    function withdraw() public onlyOwner {
         uint256 balance = address(this).balance; // Store the balance before modifying state
 
         // Transfer the contract's balance to the owner
@@ -267,6 +267,14 @@ contract DecVotingSystem {
     // =======================================
     //           ADDITIONAL GETTERS
     // =======================================
+
+    /**
+     * @dev Returns the balance of the contract.
+     * @return The balance of the contract.
+     */
+    function getBalance() external view onlyOwner returns (uint256) {
+        return address(this).balance;
+    }
 
     /**
      * @dev Returns the address of a voter by index.

@@ -6,7 +6,7 @@ import {Script} from "forge-std/Script.sol";
 import {DecVotingSystem} from "../src/DecVote.sol";
 
 contract DeployVotingSystem is Script {
-    function run() external returns(DecVotingSystem){
+    function run() external returns (DecVotingSystem) {
         // Start broadcasting transactions
         vm.startBroadcast();
 
