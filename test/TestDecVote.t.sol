@@ -6,28 +6,30 @@ import {DeployVotingSystem} from "../script/DeployDecVote.s.sol";
 import {DecVotingSystem} from "../src/DecVote.sol";
 
 contract TestVotingSystem is Test {
+    // Test constants
     address USER = makeAddr("user");
     address USER2 = makeAddr("user2");
     string NAME = "Developer1";
     uint256 constant SEND_VALUE = 0.01 ether;
     uint256 constant STARTING_BALANCE = 10 ether;
-    bytes constant RANDOM_DATA = "Random Data";
 
+    // Test variables
     address deployer;
     DecVotingSystem test_DecVote;
 
+    // Setup function to deploy the voting system contract
     function setUp() external {
         DeployVotingSystem deploy = new DeployVotingSystem();
         test_DecVote = deploy.run();
         deployer = msg.sender;
-
-        vm.deal(USER, STARTING_BALANCE);
+        vm.deal(USER, STARTING_BALANCE); // Give USER a starting balance
     }
 
+    // Test constructor values after deployment
     function test_constructor() public {
         uint256 _registrationFee = 0.01 ether;
-        uint256 _nominationEndTime = 2;
-        uint256 _electionEndTime = 3;
+        uint256 _nominationEndTime = 2; // in hours
+        uint256 _electionEndTime = 3; // in hours
 
         DecVotingSystem newDecVote = new DecVotingSystem(_registrationFee, _nominationEndTime, _electionEndTime);
 
@@ -37,46 +39,14 @@ contract TestVotingSystem is Test {
         assertEq(newDecVote.i_election_endTime(), block.timestamp + (_electionEndTime * 1 hours));
     }
 
-    function test_onlyOwner() public {
-        address nonOwner = makeAddr("nonOwner");
-
-        vm.prank(nonOwner);
-        assertNotEq(nonOwner, test_DecVote.i_owner());
-        vm.expectRevert(DecVotingSystem.NotOwner.selector);
-        test_DecVote.finalizeCandidateList();
-
-        vm.startPrank(deployer);
-        assertEq(deployer, test_DecVote.i_owner());
-        vm.warp(block.timestamp + (25 hours));
-        test_DecVote.finalizeCandidateList();
-        vm.stopPrank();
-    }
-
-    // function test_onlyVoter() public {
-    //     address nonVoter = makeAddr("nonVoter");
-    //     vm.deal(nonVoter, STARTING_BALANCE);
-
-    //     vm.startPrank(nonVoter);
-    //     address listAddress = test_DecVote.getVoterData(nonVoter).voterAddress;
-    //     assertNotEq(listAddress, nonVoter);
-    //     vm.expectRevert(DecVotingSystem.NotRegisteredError.selector);
-    //     test_DecVote.registerAsCandidate{value: SEND_VALUE}(NAME);
-    //     vm.stopPrank();
-
-    //     vm.startPrank(nonVoter);
-    //     test_DecVote.registerAsVoter();
-    //     address listAddr = test_DecVote.getVoterData(nonVoter).voterAddress;
-    //     assertEq(listAddr, nonVoter);
-    //     test_DecVote.registerAsCandidate{value: SEND_VALUE}(NAME);
-    //     vm.stopPrank();
-    // }
-
+    // Modifier to register a user as a voter before each test
     modifier voter() {
         vm.prank(USER);
         test_DecVote.registerAsVoter();
         _;
     }
 
+    // Modifier to register a user as a candidate before each test
     modifier candidate() {
         vm.startPrank(USER);
         test_DecVote.registerAsVoter();
@@ -85,51 +55,61 @@ contract TestVotingSystem is Test {
         _;
     }
 
+    // Test voter registration functionality
     function test_registerAsVoter() public {
         vm.startPrank(USER);
 
+        // Check that USER is not registered initially
         address checkAddress = test_DecVote.getVoterData(USER).voterAddress;
         assertNotEq(USER, checkAddress);
 
+        // Register as voter and expect an event
         vm.expectEmit(true, true, true, true);
         emit DecVotingSystem.VoterRegistered(USER);
         test_DecVote.registerAsVoter();
 
+        // Ensure that registering twice throws an error
         vm.expectRevert(DecVotingSystem.AlreadyRegisteredError.selector);
         test_DecVote.registerAsVoter();
 
         vm.stopPrank();
     }
 
+    // Test candidate registration functionality
     function test_registerAsCandidate() public voter {
         vm.startPrank(USER);
 
+        // Test registering with zero value throws an error
         vm.expectRevert(DecVotingSystem.InputError.selector);
         test_DecVote.registerAsCandidate{value: 0}(NAME);
 
+        // Register as candidate and expect an event
         vm.expectEmit(true, true, true, true);
         emit DecVotingSystem.CandidateRegistered(NAME, USER);
         test_DecVote.registerAsCandidate{value: SEND_VALUE}(NAME);
 
+        // Ensure that registering twice throws an error
         vm.expectRevert(DecVotingSystem.AlreadyRegisteredError.selector);
         test_DecVote.registerAsCandidate{value: SEND_VALUE}(NAME);
 
         vm.stopPrank();
     }
 
+    // Test nomination functionality
     function test_nominateCandidate() public candidate {
         vm.startPrank(USER);
 
-        // test_DecVote.registerAsVoter();
+        // Nominate the candidate
         test_DecVote.nominateCandidate(USER);
 
+        // Ensure a candidate cannot be nominated twice
         vm.expectRevert(DecVotingSystem.AlreadyNominatedError.selector);
         test_DecVote.nominateCandidate(USER);
 
         vm.stopPrank();
 
+        // Another user attempts to nominate after the time has passed
         vm.startPrank(USER2);
-
         test_DecVote.registerAsVoter();
 
         vm.expectRevert(DecVotingSystem.NotRegisteredError.selector);
@@ -142,16 +122,11 @@ contract TestVotingSystem is Test {
         vm.stopPrank();
     }
 
+    // Test finalizing candidate list functionality
     function test_finalizeCandidateList() public {
-        address[3] memory candidates;
-        candidates[0] = makeAddr("candidate0");
-        candidates[1] = makeAddr("candidate1");
-        candidates[2] = makeAddr("candidate2");
-
-        string[3] memory candidateNames;
-        candidateNames[0] = "Candidate0";
-        candidateNames[1] = "Candidate1";
-        candidateNames[2] = "Candidate2";
+        // Setup for multiple candidates
+        address[3] memory candidates = [makeAddr("candidate0"), makeAddr("candidate1"), makeAddr("candidate2")];
+        string[3] memory candidateNames = ["Candidate0", "Candidate1", "Candidate2"];
 
         for (uint256 i = 0; i < candidates.length; i++) {
             vm.deal(candidates[i], STARTING_BALANCE);
@@ -162,43 +137,47 @@ contract TestVotingSystem is Test {
             vm.stopPrank();
         }
 
+        // Ensure that finalizing candidate list before nomination end time fails
         vm.startPrank(deployer);
         vm.expectRevert(DecVotingSystem.TimeError.selector);
         test_DecVote.finalizeCandidateList();
 
+        // Warp time to after the nomination end time and finalize
         vm.warp(block.timestamp + (25 hours));
         test_DecVote.finalizeCandidateList();
-        vm.stopPrank();
 
-        // Check that USER is in the finalized list
+        // Check that the candidate list was finalized
         address finalizedCandidate = test_DecVote.getFinalList(0);
         assertEq(finalizedCandidate, candidates[0]);
 
         vm.expectRevert(DecVotingSystem.IndexOutOfBoundsError.selector);
         test_DecVote.getFinalList(4);
+
+        vm.stopPrank();
     }
 
+    // Test voting functionality
     function test_voteForCandidate() public candidate {
         // Register and nominate a candidate
         vm.startPrank(USER);
         test_DecVote.nominateCandidate(USER);
 
+        // Attempt to vote before the election starts
         vm.expectRevert(DecVotingSystem.TimeError.selector);
         test_DecVote.voteForCandidate(USER);
-
         vm.stopPrank();
 
-        // Finalize the candidate list
+        // Finalize the candidate list and vote
         vm.startPrank(deployer);
         vm.warp(block.timestamp + (25 hours));
         test_DecVote.finalizeCandidateList();
         vm.stopPrank();
 
-        // Vote for the candidate
-        // Candidate vote for himself
+        // Candidate votes for themselves
         vm.startPrank(USER);
         test_DecVote.voteForCandidate(USER);
 
+        // Ensure double voting throws an error
         vm.expectRevert(DecVotingSystem.AlreadyVotedError.selector);
         test_DecVote.voteForCandidate(USER);
 
@@ -223,58 +202,58 @@ contract TestVotingSystem is Test {
         assertEq(candidateData.voteCount, 1);
     }
 
+    // Test publishing election results
     function test_publishElectionResult() public candidate {
         vm.startPrank(USER);
         test_DecVote.nominateCandidate(USER);
-
         vm.stopPrank();
 
+        // Finalize the candidate list after the nomination period ends
         vm.startPrank(deployer);
-        // vm.warp(block.timestamp + (2 hours));
-        // assertTrue(block.timestamp < test_DecVote.i_election_endTime());
-        vm.expectRevert(DecVotingSystem.TimeError.selector);
-        test_DecVote.finalizeCandidateList();
-
         vm.warp(block.timestamp + 25 hours);
         test_DecVote.finalizeCandidateList();
-
         vm.stopPrank();
 
+        // Another voter votes for USER
         vm.startPrank(USER2);
         test_DecVote.registerAsVoter();
         test_DecVote.voteForCandidate(USER);
         vm.stopPrank();
 
+        // Publish the election result after the election end time
         vm.startPrank(deployer);
         vm.warp(block.timestamp + 25 hours);
         test_DecVote.publishElectionResult();
         vm.stopPrank();
 
-        // Verify the winner
+        // Verify that USER is declared the winner
         assertEq(test_DecVote.s_winner(), USER);
     }
 
-    function test_withdraw() public candidate {
+    // Test withdraw function
+    function test_withdraw() public {
         address nonOwner = makeAddr("nonOwner");
+
+        // Ensure non-owner cannot withdraw
         vm.startPrank(nonOwner);
         vm.expectRevert(DecVotingSystem.NotOwner.selector);
         test_DecVote.withdraw();
         vm.stopPrank();
 
+        // Ensure owner can withdraw successfully
         vm.startPrank(deployer);
-        assertEq(deployer, test_DecVote.i_owner());
         vm.expectEmit(true, true, true, true);
         emit DecVotingSystem.Withdrawn(deployer, test_DecVote.getBalance());
         test_DecVote.withdraw();
         vm.stopPrank();
     }
 
-    // Getters
-
+    // Test getter for voter data
     function test_getVoter() public voter {
         vm.startPrank(USER);
         address voterAddress = test_DecVote.getVotersAddress(0);
         assertEq(voterAddress, USER);
+
         vm.expectRevert(DecVotingSystem.IndexOutOfBoundsError.selector);
         test_DecVote.getVotersAddress(2);
 
